@@ -1,49 +1,20 @@
 # ============================================================
-# AXIS TRANSLATOR - STREAMLIT DEPLOYMENT
-# Penerjemah Bahasa Indonesia ↔ Bahasa Daerah Sulawesi Tenggara
+# AXIS TRANSLATOR - STREAMLIT CLOUD
+# Download model dari Google Drive saat runtime
 # ============================================================
 
 import os
-import sys
-import json
 import re
+import json
 import warnings
 import logging
 from pathlib import Path
 
 import streamlit as st
 import torch
+import gdown
 from transformers import MBartForConditionalGeneration
 from indobenchmark import IndoNLGTokenizer
-
-# Di bagian awal streamlit_app.py, tambahkan:
-
-@st.cache_resource
-def download_model_if_needed():
-    """Download model dari Google Drive jika belum ada"""
-    from pathlib import Path
-    import gdown
-    
-    MODEL_DIR = Path("model_axis_indobart")
-    MODEL_FILE = MODEL_DIR / "pytorch_model.bin"
-    
-    if not MODEL_FILE.exists():
-        st.info("📥 Downloading model... Mohon tunggu sebentar (ini hanya sekali)")
-        
-        # Ganti dengan ID file Google Drive Anda
-        FILE_ID = "YOUR_GOOGLE_DRIVE_FILE_ID"  # GANTI INI!
-        
-        MODEL_DIR.mkdir(exist_ok=True)
-        url = f"https://drive.google.com/uc?id={FILE_ID}"
-        gdown.download(url, str(MODEL_FILE), quiet=False)
-        st.success("✅ Model downloaded!")
-    else:
-        st.success("✅ Model already exists!")
-
-# Panggil fungsi di main()
-def main():
-    # Download model dulu
-    download_model_if_needed()
 
 # ============================================================
 # KONFIGURASI
@@ -56,7 +27,12 @@ logging.basicConfig(level=logging.ERROR)
 BASE_DIR = Path(__file__).parent
 MODEL_DIR = BASE_DIR / "model_axis_indobart"
 
-# Konfigurasi bahasa
+# Google Drive File ID - GANTI DENGAN FILE ID ANDA!
+# Cara dapatkan: buka file model.safetensors di Google Drive
+# Copy link: https://drive.google.com/file/d/[FILE_ID]/view
+GOOGLE_DRIVE_FILE_ID = "1ABC123xyz"  # ⚠️ GANTI INI!
+
+# Bahasa
 LANG_TAGS = {
     "indo": "<2indo>",
     "buton": "<2buton>",
@@ -71,23 +47,68 @@ LANG_DISPLAY = {
     "tolaki": "🌴 Bahasa Tolaki",
 }
 
-LANG_FLAG = {
-    "indo": "🇮🇩",
-    "buton": "🌴",
-    "muna": "🌴",
-    "tolaki": "🌴",
-}
-
 MAX_SRC_LENGTH = 64
 MAX_TGT_LENGTH = 64
 
 # ============================================================
-# MODEL LOADER (dengan caching Streamlit)
+# DOWNLOAD MODEL DARI GOOGLE DRIVE
+# ============================================================
+
+@st.cache_resource
+def download_model():
+    """Download semua model files dari Google Drive"""
+    
+    # Buat folder jika belum ada
+    MODEL_DIR.mkdir(exist_ok=True)
+    
+    # Cek apakah model.safetensors sudah ada
+    model_file = MODEL_DIR / "model.safetensors"
+    
+    # Jika sudah ada dan ukurannya > 100MB, skip download
+    if model_file.exists():
+        size_mb = model_file.stat().st_size / (1024 * 1024)
+        if size_mb > 100:
+            # Cek juga file lain
+            required_files = [
+                "config.json",
+                "sentencepiece.bpe.model",
+                "tokenizer_config.json",
+                "special_tokens_map.json",
+                "added_tokens.json",
+            ]
+            all_exist = all((MODEL_DIR / f).exists() for f in required_files)
+            if all_exist:
+                st.success("✅ Model already exists!")
+                return
+    
+    # Download model
+    st.info("📥 Downloading model (~514MB)... Mohon tunggu sebentar (ini hanya sekali)")
+    
+    # Download model.safetensors
+    url = f"https://drive.google.com/uc?id={GOOGLE_DRIVE_FILE_ID}"
+    
+    try:
+        gdown.download(url, str(model_file), quiet=False)
+        st.success("✅ Model downloaded!")
+    except Exception as e:
+        st.error(f"❌ Failed to download model: {e}")
+        st.info("""
+        **Manual Upload Required:**
+        1. Download model from Google Drive manually
+        2. Upload to Streamlit Cloud using the file manager
+        """)
+        raise
+
+# ============================================================
+# MODEL LOADER
 # ============================================================
 
 @st.cache_resource
 def load_translator():
-    """Load model dengan caching agar tidak reload setiap kali"""
+    """Load model dengan caching"""
+    
+    # Download model dulu
+    download_model()
     
     class AxisTranslator:
         def __init__(self):
@@ -100,23 +121,25 @@ def load_translator():
         def _get_device(self):
             if torch.cuda.is_available():
                 return torch.device("cuda")
-            elif hasattr(torch.backends, 'mps') and torch.backends.mps.is_available():
-                return torch.device("mps")
             return torch.device("cpu")
         
         def load_model(self):
             try:
-                status_text = st.empty()
-                status_text.info("🔄 Loading model... Mohon tunggu sebentar")
+                status = st.empty()
+                status.info("🔄 Loading model... Mohon tunggu")
                 
                 # Load tokenizer
                 try:
                     self.tokenizer = IndoNLGTokenizer.from_pretrained(
-                        str(MODEL_DIR), use_fast=False, local_files_only=True
+                        str(MODEL_DIR), 
+                        use_fast=False, 
+                        local_files_only=True
                     )
-                except:
+                except Exception as e:
+                    st.warning(f"Loading tokenizer from original model: {e}")
                     self.tokenizer = IndoNLGTokenizer.from_pretrained(
-                        "indobenchmark/indobart-v2", use_fast=False
+                        "indobenchmark/indobart-v2", 
+                        use_fast=False
                     )
                 
                 # Add language tokens
@@ -124,38 +147,47 @@ def load_translator():
                 existing = self.tokenizer.all_special_tokens
                 to_add = [t for t in new_tokens if t not in existing]
                 if to_add:
-                    self.tokenizer.add_special_tokens({"additional_special_tokens": to_add})
+                    self.tokenizer.add_special_tokens({
+                        "additional_special_tokens": to_add
+                    })
+                    st.info(f"✅ Added {len(to_add)} language tokens")
                 
                 vocab_size = len(self.tokenizer)
                 
                 # Load model
                 try:
                     self.model = MBartForConditionalGeneration.from_pretrained(
-                        str(MODEL_DIR), local_files_only=True
+                        str(MODEL_DIR),
+                        local_files_only=True
                     )
-                except:
+                except Exception as e:
+                    st.warning(f"Loading model from original: {e}")
                     self.model = MBartForConditionalGeneration.from_pretrained(
                         "indobenchmark/indobart-v2"
                     )
                 
-                # Resize embeddings
+                # Resize embeddings jika perlu
                 if self.model.config.vocab_size != vocab_size:
                     self.model.resize_token_embeddings(vocab_size)
+                    st.info(f"✅ Resized embeddings to {vocab_size}")
                 
-                # Move to device
+                # Pindahkan ke device
                 self.model = self.model.to(self.device)
                 self.model.eval()
                 
                 self.is_loaded = True
-                status_text.success("✅ Model siap digunakan!")
+                status.success("✅ Model ready! Silakan mulai menerjemahkan")
                 
             except Exception as e:
-                status_text.error(f"❌ Error loading model: {e}")
+                status.error(f"❌ Error loading model: {e}")
+                st.error(f"Error: {e}")
+                import traceback
+                st.code(traceback.format_exc())
                 self.is_loaded = False
         
         def translate(self, text, source_lang, target_lang, num_beams=5):
             if not self.is_loaded:
-                return "⚠️ Model belum siap. Silakan refresh halaman."
+                return "⚠️ Model belum siap. Silakan refresh."
             
             if source_lang == target_lang:
                 return text
@@ -196,7 +228,10 @@ def load_translator():
                 )
             
             # Decode
-            result = self.tokenizer.decode(generated[0], skip_special_tokens=True).strip()
+            result = self.tokenizer.decode(
+                generated[0], 
+                skip_special_tokens=True
+            ).strip()
             
             # Clean
             for tag in LANG_TAGS.values():
@@ -219,46 +254,28 @@ def load_translator():
     
     return AxisTranslator()
 
-
 # ============================================================
 # STREAMLIT UI
 # ============================================================
 
 def main():
-    # Konfigurasi halaman
     st.set_page_config(
         page_title="AXIS Translator",
         page_icon="🌏",
-        layout="wide",
-        initial_sidebar_state="expanded"
+        layout="wide"
     )
     
-    # CSS Custom
+    # CSS
     st.markdown("""
         <style>
-        .main-header {
-            text-align: center;
-            padding: 1rem 0;
-            background: linear-gradient(135deg, #1a1a2e, #16213e, #0f3460);
-            border-radius: 10px;
-            margin-bottom: 2rem;
-        }
-        .main-header h1 {
-            color: #fff;
-            font-size: 3rem;
-            margin: 0;
-        }
-        .main-header p {
-            color: #a8d8ea;
-            font-size: 1.1rem;
-        }
         .result-box {
-            background: #f0f2f6;
+            background: #e3f2fd;
             padding: 1.5rem;
             border-radius: 10px;
             border-left: 5px solid #1565c0;
             margin-top: 1rem;
             color: #0d47a1;
+            font-size: 1.2rem;
         }
         .stButton > button {
             background: #0f3460;
@@ -269,37 +286,31 @@ def main():
         .stButton > button:hover {
             background: #1a1a2e;
         }
-        .info-box {
-            background: #e8f4f8;
-            padding: 1rem;
-            border-radius: 10px;
-            border-left: 5px solid #00b894;
-        }
         </style>
     """, unsafe_allow_html=True)
     
     # Header
-    st.markdown("""
-        <div class="main-header">
-            <h1>🌏 AXIS Translator</h1>
-            <p>Penerjemah Cerdas Bahasa Daerah Sulawesi Tenggara</p>
-            <p style="font-size: 0.9rem; color: #6c8fa0;">
-                🇮🇩 Indonesia ↔ 🌴 Buton · 🌴 Muna · 🌴 Tolaki
-            </p>
-        </div>
-    """, unsafe_allow_html=True)
+    st.title("🌏 AXIS Translator")
+    st.caption("Penerjemah Bahasa Indonesia ↔ Bahasa Daerah Sulawesi Tenggara")
+    st.markdown("*🇮🇩 Indonesia ↔ 🌴 Buton · 🌴 Muna · 🌴 Tolaki*")
+    st.divider()
+    
+    # Load model
+    with st.spinner("Loading model..."):
+        translator = load_translator()
     
     # Sidebar
     with st.sidebar:
         st.markdown("### ⚙️ Pengaturan")
+        num_beams = st.slider("Beam Search", 1, 10, 5)
         
-        num_beams = st.slider(
-            "Jumlah Beam Search",
-            min_value=1,
-            max_value=10,
-            value=5,
-            help="Semakin tinggi, hasil lebih akurat tapi lebih lambat"
-        )
+        st.markdown("---")
+        st.markdown("### 📊 Status")
+        if translator.is_loaded:
+            st.success("✅ Model siap")
+            st.info(f"💻 Device: {translator.device}")
+        else:
+            st.error("❌ Model belum siap")
         
         st.markdown("---")
         st.markdown("### 📖 Tentang AXIS")
@@ -309,77 +320,40 @@ def main():
         - 🌴 Bahasa Buton
         - 🌴 Bahasa Muna
         - 🌴 Bahasa Tolaki
-            
-        Dibangun dengan model **IndoBART** dan fine-tuning pada dataset bahasa daerah Sulawesi Tenggara.
         """)
-        
-        st.markdown("---")
-        st.markdown("### 💡 Tips")
-        st.markdown("""
-        - Gunakan kalimat pendek dan jelas
-        - Hindari kata-kata slang
-        - Hasil terbaik untuk kalimat 5-15 kata
-        """)
-        
-        st.markdown("---")
-        st.markdown("### 📊 Status Model")
-        
-        # Load model
-        with st.spinner("Loading model..."):
-            translator = load_translator()
-        
-        if translator.is_loaded:
-            st.success("✅ Model siap")
-            st.info(f"💻 Device: {translator.device}")
-            st.info(f"🗣️ Bahasa: {', '.join(translator.get_languages())}")
-        else:
-            st.error("❌ Model gagal dimuat")
     
-    # Main content
+    # Main content - 2 kolom
     col1, col2 = st.columns(2)
     
     with col1:
         st.markdown("### 📝 Teks Sumber")
         
-        # Pilih bahasa sumber
         source_lang = st.selectbox(
             "Bahasa Sumber",
-            options=["indo", "buton", "muna", "tolaki"],
-            format_func=lambda x: LANG_DISPLAY.get(x, x),
-            key="source"
+            options=list(LANG_TAGS.keys()),
+            format_func=lambda x: LANG_DISPLAY.get(x, x)
         )
         
-        # Text area
         source_text = st.text_area(
             "Masukkan teks",
             placeholder="Ketik kalimat di sini...",
-            height=150,
-            key="source_text"
+            height=150
         )
         
-        # Tombol terjemahkan
-        translate_button = st.button(
-            "🔊 Terjemahkan",
-            use_container_width=True,
-            type="primary"
+        target_lang = st.selectbox(
+            "Bahasa Target",
+            options=list(LANG_TAGS.keys()),
+            format_func=lambda x: LANG_DISPLAY.get(x, x)
         )
+        
+        translate_btn = st.button("🔊 Terjemahkan", use_container_width=True)
     
     with col2:
         st.markdown("### 🌐 Hasil Terjemahan")
         
-        # Pilih bahasa target
-        target_lang = st.selectbox(
-            "Bahasa Target",
-            options=["indo", "buton", "muna", "tolaki"],
-            format_func=lambda x: LANG_DISPLAY.get(x, x),
-            key="target"
-        )
-        
-        # Hasil terjemahan
-        if translate_button and source_text:
+        if translate_btn and source_text:
             if source_lang == target_lang:
-                st.warning("⚠️ Bahasa sumber dan target sama!")
-                result = source_text
+                result = "⚠️ Bahasa sumber dan target sama!"
             else:
                 with st.spinner("Menerjemahkan..."):
                     try:
@@ -391,63 +365,19 @@ def main():
                         )
                     except Exception as e:
                         result = f"❌ Error: {str(e)}"
-        else:
-            result = ""
-        
-        # Display result
-        if result:
+            
             st.markdown(f"""
                 <div class="result-box">
-                    <p style="font-size: 1.2rem; margin: 0;">{result}</p>
+                    {result}
                 </div>
             """, unsafe_allow_html=True)
             
-            # Tombol copy
-            st.button(
-                "📋 Copy ke Clipboard",
-                on_click=lambda: st.write("Copy: " + result),
-                use_container_width=True
-            )
+            st.button("📋 Copy", on_click=lambda: st.write("Copy: " + result))
         else:
             st.info("👆 Terjemahan akan muncul di sini")
     
-    # Informasi tambahan
-    st.markdown("---")
-    
-    col_info1, col_info2, col_info3 = st.columns(3)
-    
-    with col_info1:
-        st.metric(
-            label="Bahasa Didukung",
-            value="4",
-            delta="🇮🇩 🌴"
-        )
-    
-    with col_info2:
-        st.metric(
-            label="Status",
-            value="✅ Online" if translator.is_loaded else "⏳ Loading",
-            delta="Model siap" if translator.is_loaded else "Silakan tunggu"
-        )
-    
-    with col_info3:
-        st.metric(
-            label="Device",
-            value=str(translator.device).upper() if translator.is_loaded else "-",
-            delta=""
-        )
-    
-    # Footer
-    st.markdown("""
-        <div style="text-align: center; color: #888; padding: 2rem 0; font-size: 0.8rem;">
-            AXIS Translator v1.0 | Built with ❤️ for Bahasa Daerah Sulawesi Tenggara
-        </div>
-    """, unsafe_allow_html=True)
-
-
-# ============================================================
-# RUN
-# ============================================================
+    st.divider()
+    st.caption("AXIS Translator v1.0 | Built with ❤️")
 
 if __name__ == "__main__":
     main()
