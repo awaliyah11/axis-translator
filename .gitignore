@@ -1,0 +1,10 @@
+venv/
+model_axis_indobart/
+*.whl
+__pycache__/
+*.pyc
+.DS_Store
+*.log
+*.tmp
+*.cache
+uploads/
