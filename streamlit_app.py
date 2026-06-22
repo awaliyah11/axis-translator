@@ -35,7 +35,7 @@ MODEL_DIR = BASE_DIR / "model_axis_indobart"
 # 3. Copy link: https://drive.google.com/file/d/[FILE_ID]/view
 # 4. FILE ID adalah bagian di antara /d/ dan /view
 # ============================================================
-GOOGLE_DRIVE_FILE_ID = "1fe4KHOzoqbTJNZ4xYH3SYXZDZIwRyfQQ"  # <-- GANTI INI!
+GOOGLE_DRIVE_FILE_ID = "12t8UVfVSw3562PKH2enOj3GnoZ-HoNif"  # <-- GANTI INI!
 
 # ============================================================
 # BAHASA
