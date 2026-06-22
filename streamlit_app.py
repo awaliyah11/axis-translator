@@ -1,6 +1,6 @@
 # ============================================================
 # AXIS TRANSLATOR - STREAMLIT CLOUD
-# (Tanpa gdown, pakai requests)
+# (Tanpa gdown)
 # ============================================================
 
 import os
@@ -27,6 +27,7 @@ BASE_DIR = Path(__file__).parent
 MODEL_DIR = BASE_DIR / "model_axis_indobart"
 
 # ⚠️ GANTI DENGAN FILE ID GOOGLE DRIVE ANDA!
+# Cara dapatkan: buka file di Google Drive → share → copy ID dari URL
 GOOGLE_DRIVE_FILE_ID = "1ABC123xyz"
 
 LANG_TAGS = {
@@ -47,7 +48,7 @@ MAX_SRC_LENGTH = 64
 MAX_TGT_LENGTH = 64
 
 # ============================================================
-# DOWNLOAD MODEL
+# DOWNLOAD MODEL (TANPA GDOWN)
 # ============================================================
 
 @st.cache_resource
@@ -64,8 +65,8 @@ def download_model():
             st.success("✅ Model already exists!")
             return
     
-    # Download
-    st.info("📥 Downloading model... Mohon tunggu")
+    # Download dari Google Drive
+    st.info("📥 Downloading model (~514MB)... Mohon tunggu sebentar")
     
     url = f"https://drive.google.com/uc?export=download&id={GOOGLE_DRIVE_FILE_ID}"
     
@@ -78,10 +79,15 @@ def download_model():
                 if chunk:
                     f.write(chunk)
         
-        st.success("✅ Model downloaded!")
+        st.success("✅ Model downloaded successfully!")
+        
     except Exception as e:
-        st.error(f"❌ Download failed: {e}")
-        st.info("Upload model manually via 'Manage app' → Files")
+        st.error(f"❌ Failed to download: {e}")
+        st.info("""
+        **Manual Upload:**
+        1. Download model dari Google Drive
+        2. Upload via 'Manage app' → 'Files'
+        """)
         raise
 
 # ============================================================
@@ -115,7 +121,8 @@ def load_translator():
                     self.tokenizer = IndoNLGTokenizer.from_pretrained(
                         str(MODEL_DIR), use_fast=False, local_files_only=True
                     )
-                except:
+                except Exception as e:
+                    st.warning(f"Loading tokenizer from original: {e}")
                     self.tokenizer = IndoNLGTokenizer.from_pretrained(
                         "indobenchmark/indobart-v2", use_fast=False
                     )
@@ -136,12 +143,13 @@ def load_translator():
                     self.model = MBartForConditionalGeneration.from_pretrained(
                         str(MODEL_DIR), local_files_only=True
                     )
-                except:
+                except Exception as e:
+                    st.warning(f"Loading model from original: {e}")
                     self.model = MBartForConditionalGeneration.from_pretrained(
                         "indobenchmark/indobart-v2"
                     )
                 
-                # Resize embeddings
+                # Resize embeddings jika perlu
                 if self.model.config.vocab_size != vocab_size:
                     self.model.resize_token_embeddings(vocab_size)
                 
@@ -153,6 +161,8 @@ def load_translator():
                 
             except Exception as e:
                 status.error(f"❌ Error: {e}")
+                import traceback
+                st.code(traceback.format_exc())
                 self.is_loaded = False
         
         def translate(self, text, source_lang, target_lang, num_beams=5):
