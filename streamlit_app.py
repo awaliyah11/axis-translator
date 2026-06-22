@@ -16,6 +16,35 @@ import torch
 from transformers import MBartForConditionalGeneration
 from indobenchmark import IndoNLGTokenizer
 
+# Di bagian awal streamlit_app.py, tambahkan:
+
+@st.cache_resource
+def download_model_if_needed():
+    """Download model dari Google Drive jika belum ada"""
+    from pathlib import Path
+    import gdown
+    
+    MODEL_DIR = Path("model_axis_indobart")
+    MODEL_FILE = MODEL_DIR / "pytorch_model.bin"
+    
+    if not MODEL_FILE.exists():
+        st.info("📥 Downloading model... Mohon tunggu sebentar (ini hanya sekali)")
+        
+        # Ganti dengan ID file Google Drive Anda
+        FILE_ID = "YOUR_GOOGLE_DRIVE_FILE_ID"  # GANTI INI!
+        
+        MODEL_DIR.mkdir(exist_ok=True)
+        url = f"https://drive.google.com/uc?id={FILE_ID}"
+        gdown.download(url, str(MODEL_FILE), quiet=False)
+        st.success("✅ Model downloaded!")
+    else:
+        st.success("✅ Model already exists!")
+
+# Panggil fungsi di main()
+def main():
+    # Download model dulu
+    download_model_if_needed()
+
 # ============================================================
 # KONFIGURASI
 # ============================================================
