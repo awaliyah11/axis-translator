@@ -264,6 +264,7 @@ def main():
     # Header
     st.title("AXIS Translator")
     st.caption("Penerjemah Bahasa Indonesia dan Bahasa Daerah Sulawesi Tenggara")
+    st.caption("Buton | Muna | Tolaki")
     st.divider()
 
     # Load model (tanpa pesan apapun)
