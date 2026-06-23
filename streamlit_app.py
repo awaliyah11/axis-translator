@@ -50,9 +50,9 @@ LANG_TAGS = {
 
 LANG_DISPLAY = {
     "indo": "🇮🇩 Bahasa Indonesia",
-    "buton": "🌴 Bahasa Buton",
-    "muna": "🌴 Bahasa Muna",
-    "tolaki": "🌴 Bahasa Tolaki",
+    "buton": " Bahasa Buton",
+    "muna": " Bahasa Muna",
+    "tolaki": " Bahasa Tolaki",
 }
 
 MAX_SRC_LENGTH = 64
@@ -74,7 +74,7 @@ def download_model():
     if model_file.exists():
         size_mb = model_file.stat().st_size / (1024 * 1024)
         if size_mb > 100:
-            st.success("✅ Model already exists!")
+            # st.success("✅ Model already exists!")
             return
     
     # Download dari Google Drive
